@@ -127,3 +127,10 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# MISC
+.idea/
+*.tex
+tex/
+dataset/
+
