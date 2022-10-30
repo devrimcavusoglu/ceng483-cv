@@ -89,14 +89,15 @@ class ColorHistogram(ABC):
 class ColorHistogramPerChannel(ColorHistogram):
     def embed(self, image: np.ndarray, bins: np.ndarray) -> np.ndarray:
         channel_counts = []
+        m = len(bins)
         for cname in RGBChannel:
             cimg = image[:, :, cname.value]
 
             # returned indices starts from 1, assuring 0-indexing by subtracting 1
             indices = np.digitize(cimg.ravel(), bins) - 1
-            counts = np.bincount(indices, minlength=len(bins))
+            counts = np.bincount(indices, minlength=m)
             channel_counts.append(counts)
-        return np.stack(channel_counts)
+        return np.stack(channel_counts)  # (c,m) - c: channel, m: nbins
 
     def score(self, q: np.ndarray, s: np.ndarray) -> float:
         rgbscores = []
@@ -122,7 +123,7 @@ class ColorHistogram3D(ColorHistogram):
         for i in range(niter):
             idx = indices[:, i]
             H[idx[0], idx[1], idx[2]] += 1
-        return H
+        return H  # (m,m, m) - m: nbins
 
     def score(self, q: np.ndarray, s: np.ndarray):
         return js_divergence(q.ravel(), s.ravel())
