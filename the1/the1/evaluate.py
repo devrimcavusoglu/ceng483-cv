@@ -14,7 +14,9 @@ def kl_divergence(p: np.ndarray, q: np.ndarray):
     Returns:
         KL-Divergence score.
     """
-    return np.sum(p * np.log(p/q))
+    # Due to possibility of zero-division or log(0)
+    # nan values occur, this function simply ignores them.
+    return np.nansum(p * np.log(p/q))
 
 
 def js_divergence(p: np.ndarray, q: np.ndarray, normalize: bool = True):
