@@ -10,8 +10,8 @@ def create_args():
                         help="Histogram type to be used.")
     parser.add_argument("--grid", type=int, required=False, default=1, nargs="+", help="Grid to be applied on image before the algorithm.")
     parser.add_argument("--bins", type=int, required=False, default=256, help="Number of bins.")
-    parser.add_argument("--force-recache", action="store_true",
-                        help="Whether to forcefully cache regardless of cache existence.")
+    # parser.add_argument("--force-recache", action="store_true",
+    #                     help="Whether to forcefully cache regardless of cache existence.")
     parser.add_argument("--topk", type=int, default=1)
     return parser.parse_args()
 
@@ -26,8 +26,9 @@ def main(args):
     else:
         hist = ColorHistogramPerChannel(grid, nbins)
 
+    hist.cache_dataset()
     for query_dir in QUERY_DIRS:
-        hist.evaluate(query_dir, force_recache=args.force_recache, topk=args.topk)
+        hist.evaluate(query_dir, topk=args.topk)
 
 
 if __name__ == "__main__":

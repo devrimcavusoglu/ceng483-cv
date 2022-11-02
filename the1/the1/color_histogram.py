@@ -2,7 +2,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Union, Tuple, Optional, Dict, Literal
+from typing import Union, Tuple, Optional, Dict, Literal, List
 
 import numpy as np
 from tqdm import tqdm
@@ -16,19 +16,21 @@ class ColorHistogram(ABC):
     _max_value: int = 255
     _min_value: int = 0
 
-    def __init__(self, grid: Optional[Union[int, Tuple[int, int]]] = 1, nbins: Optional[int] = 256):
-        self.grid = grid
+    def __init__(self, grid: Optional[Tuple[int, int]] = (1, 1), nbins: Optional[int] = 256):
+        if any([g <= 0 for g in grid]):
+            raise ValueError("`grid` must contain positive values only.")
+        elif len(grid) == 1:
+            grid = grid[0], grid[0]  # if integer, grid is assumed to be square
+        self.grid = tuple(grid)
         self.nbins = nbins
         self.cache_dir = DATASET_CACHE_DIR / self.__class__.__name__
         self.cache_filepath = self.cache_dir / CACHE_FILENAME
 
-    def cache_dataset(self, force_recache: bool):
-        if force_recache:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-        elif self.is_dataset_cached():
-            return
+    def cache_dataset(self):
+        print("Cleaning up cache dir.")
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
         results = {}
-        for path in SUPPORT_DIR.glob("*"):
+        for path in tqdm(SUPPORT_DIR.glob("*"), desc="Caching support set", total=len(list(SUPPORT_DIR.glob("*")))):
             path = str(path)
             embedding = self.compute_from_path(path)
             results[path] = embedding
@@ -39,17 +41,34 @@ class ColorHistogram(ABC):
     def is_dataset_cached(self):
         return self.cache_dir.exists()
 
-    def preprocess(self, image):
-        return image,
+    def preprocess(self, image: np.ndarray) -> List[np.ndarray]:
+        r, c = self.grid
+        crops = []
+        h, w, _ = image.shape
+        r_size = h // r
+        c_size = w // c
+        for g_i in range(r):
+            for g_j in range(c):
+                crop = image[
+                       r_size * g_i: r_size * (g_i + 1),
+                       c_size * g_j: c_size * (g_j + 1),
+                       :
+                       ]
+                crops.append(crop)
+        return crops
 
     def compute_from_path(self, image_path: str) -> np.ndarray:
         image = read_image(image_path)
         return self.compute_from_image(image)
 
     def compute_from_image(self, image: np.ndarray):
-        bin_size = np.ceil(self._max_value / self.nbins)
-        bins = np.arange(self._min_value, self._max_value + 1, bin_size)
-        return self.embed(image, bins)
+        crops = self.preprocess(image)
+        crop_embeddings = []
+        for crop in crops:
+            bin_size = np.ceil(self._max_value / self.nbins)
+            bins = np.arange(self._min_value, self._max_value + 1, bin_size)
+            crop_embeddings.append(self.embed(crop, bins))
+        return np.stack(crop_embeddings)
 
     def evaluate_single(self, q_path: Path, s: Dict[str, np.ndarray], topk: int) -> Literal[0, 1]:
         q = self.compute_from_path(str(q_path))
@@ -63,8 +82,7 @@ class ColorHistogram(ABC):
             return 1
         return 0
 
-    def evaluate(self, query_dir: Union[str, Path], force_recache: bool = False, topk: int = 1):
-        self.cache_dataset(force_recache=force_recache)
+    def evaluate(self, query_dir: Union[str, Path], topk: int = 1):
         if isinstance(query_dir, str):
             query_dir = Path(query_dir)
         support_embeddings = read_pickle(str(self.cache_filepath))
@@ -75,7 +93,7 @@ class ColorHistogram(ABC):
             res.append(score)
         overall_score = np.mean(res)
         tqdm.write(f"Top-{topk} Accuracy: %{100*overall_score:.2f}")
-        time.sleep(0.01)  # Allow tqdm to write stdout properly
+        time.sleep(0.1)  # Allow tqdm to write stdout properly
 
     @abstractmethod
     def score(self, q: np.ndarray, s: np.ndarray) -> float:
@@ -97,15 +115,12 @@ class ColorHistogramPerChannel(ColorHistogram):
             indices = np.digitize(cimg.ravel(), bins) - 1
             counts = np.bincount(indices, minlength=m)
             channel_counts.append(counts)
-        return np.stack(channel_counts)  # (c,m) - c: channel, m: nbins
+        return np.stack(channel_counts)  # (g,c,m) - g: ngrids, c: channel, m: nbins
 
     def score(self, q: np.ndarray, s: np.ndarray) -> float:
-        rgbscores = []
-        for channel in RGBChannel:
-            axis = channel.value
-            score = js_divergence(q[axis], s[axis])
-            rgbscores.append(score)
-        return float(np.mean(rgbscores))
+        f = np.vectorize(js_divergence, signature="(n),(n) -> ()", excluded={"normalize"})
+        scores = f(q, s)  # (g,c) - g: ngrids, c: channel
+        return np.mean(scores).item()
 
 
 class ColorHistogram3D(ColorHistogram):
@@ -120,10 +135,15 @@ class ColorHistogram3D(ColorHistogram):
             indices.append(inds)
         indices = np.array(indices)
         niter = indices.shape[1]
-        for i in range(niter):
-            idx = indices[:, i]
-            H[idx[0], idx[1], idx[2]] += 1
-        return H  # (m,m, m) - m: nbins
+        for n_i in range(niter):
+            i, j, k = indices[:, n_i]
+            H[i, j, k] += 1
+        return H  # (g,m,m,m) - g: ngrids, m: nbins
 
-    def score(self, q: np.ndarray, s: np.ndarray):
-        return js_divergence(q.ravel(), s.ravel())
+    def score(self, q: np.ndarray, s: np.ndarray) -> float:
+        f = np.vectorize(js_divergence, signature="(n),(n) -> ()", excluded={"normalize"})
+        n = q.shape[0]
+        q = q.reshape((n, -1))
+        s = s.reshape((n, -1))
+        scores = f(q, s)  # (g) - g: ngrids
+        return np.mean(scores).item()
