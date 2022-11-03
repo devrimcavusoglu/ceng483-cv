@@ -1,7 +1,7 @@
 import os
 import pickle
 from enum import Enum
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 
 import PIL.Image
 import numpy as np
@@ -23,7 +23,7 @@ def numpy2pillow(img: np.ndarray) -> PIL.Image.Image:
 
 
 def vnormalize(v: np.ndarray):
-    return v / np.linalg.norm(v)
+    return v / np.linalg.norm(v, ord=1)
 
 
 def read_image(path: str) -> np.ndarray:
@@ -48,18 +48,3 @@ def write_pickle(obj: Dict, fp: str, overwrite: bool = True) -> None:
 
     with open(fp, "wb") as pkl:
         pickle.dump(obj, pkl)
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-
-    p = r"D:\lab\projects\ceng483-cv\the1\dataset\query_1\Acadian_Flycatcher_0016_887710060.jpg"
-    export_dir = Path(r"D:\lab\projects\ceng483-cv\the1\dataset\test")
-    img = read_image(p)
-    grid = (1, 1)
-    crops = apply_grid(img, grid)
-    print("Image shape:", img.shape)
-    for i, crop in enumerate(crops):
-        print(crop.shape)
-        pil_crop = numpy2pillow(crop)
-        pil_crop.save(export_dir / f"crop_{i}.jpg")

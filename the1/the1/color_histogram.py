@@ -16,15 +16,26 @@ class ColorHistogram(ABC):
     _max_value: int = 255
     _min_value: int = 0
 
-    def __init__(self, grid: Optional[Tuple[int, int]] = (1, 1), nbins: Optional[int] = 256):
+    def __init__(self, grid: Optional[Tuple[int, int]] = (1, 1), bin_size: Optional[int] = 1):
         if any([g <= 0 for g in grid]):
             raise ValueError("`grid` must contain positive values only.")
         elif len(grid) == 1:
             grid = grid[0], grid[0]  # if integer, grid is assumed to be square
         self.grid = tuple(grid)
-        self.nbins = nbins
+        self.bin_size = bin_size
         self.cache_dir = DATASET_CACHE_DIR / self.__class__.__name__
         self.cache_filepath = self.cache_dir / CACHE_FILENAME
+        self._setup(bin_size)
+
+    @property
+    def range(self):
+        return self._max_value - self._min_value + 1
+
+    def _setup(self, bin_size: int):
+        self.nbins = int(np.ceil(self.range / bin_size))
+        self.bins = np.arange(self._min_value, self._max_value + 1, bin_size)
+        print("Setup completed!")
+        print(f"--> bin-size: {bin_size} | nbins: {self.nbins}")
 
     def cache_dataset(self):
         print("Cleaning up cache dir.")
@@ -65,9 +76,7 @@ class ColorHistogram(ABC):
         crops = self.preprocess(image)
         crop_embeddings = []
         for crop in crops:
-            bin_size = np.ceil(self._max_value / self.nbins)
-            bins = np.arange(self._min_value, self._max_value + 1, bin_size)
-            crop_embeddings.append(self.embed(crop, bins))
+            crop_embeddings.append(self.embed(crop, self.bins))
         return np.stack(crop_embeddings)
 
     def evaluate_single(self, q_path: Path, s: Dict[str, np.ndarray], topk: int) -> Literal[0, 1]:
@@ -92,7 +101,7 @@ class ColorHistogram(ABC):
             score = self.evaluate_single(path, support_embeddings, topk)
             res.append(score)
         overall_score = np.mean(res)
-        tqdm.write(f"Top-{topk} Accuracy: %{100*overall_score:.2f}")
+        tqdm.write(f"--> Top-{topk} Accuracy for '{query_dir.name}': %{100*overall_score:.2f}\n")
         time.sleep(0.1)  # Allow tqdm to write stdout properly
 
     @abstractmethod
@@ -124,6 +133,11 @@ class ColorHistogramPerChannel(ColorHistogram):
 
 
 class ColorHistogram3D(ColorHistogram):
+    def _setup(self, bin_size: int):
+        super()._setup(bin_size)
+        if self.nbins > 16:
+            raise ValueError("Number of bins must be smaller than 16 (4096 in total) for 3d histogram.")
+
     def embed(self, image: np.ndarray, bins: np.ndarray) -> np.ndarray:
         m = len(bins)
         H = np.zeros((m, m, m))
