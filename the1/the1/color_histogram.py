@@ -21,6 +21,8 @@ class ColorHistogram(ABC):
             raise ValueError("`grid` must contain positive values only.")
         elif len(grid) == 1:
             grid = grid[0], grid[0]  # if integer, grid is assumed to be square
+        elif len(grid) == 3:
+            raise ValueError("`grid` must be tuple of 2 (n_rows, n_cols).")
         self.grid = tuple(grid)
         self.bin_size = bin_size
         self.cache_dir = DATASET_CACHE_DIR / self.__class__.__name__

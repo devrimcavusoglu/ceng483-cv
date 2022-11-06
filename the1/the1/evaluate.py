@@ -14,8 +14,9 @@ def kl_divergence(p: np.ndarray, q: np.ndarray):
     Returns:
         KL-Divergence score.
     """
-    # Due to possibility of zero-division or log(0)
-    # nan values occur, this function simply ignores them.
+    # Due to possibility of zero-division or log(0) nan values occur, this function
+    # simply ignores them. This works because lim (x->0) [x * log(x)] = 0, and assuming
+    # that zero division can be mitigated by adding small epsilon to denominator.
     return np.nansum(p * np.log(p/q))
 
 
