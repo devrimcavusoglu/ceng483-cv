@@ -127,3 +127,18 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Archive
+*.zip
+*.tar.gz
+*.rar
+
+# MISC
+.idea/
+*.tex
+tex/
+*.pkl
+dataset/
+.dataset/
+
+

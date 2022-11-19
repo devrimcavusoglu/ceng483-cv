@@ -1,0 +1,5 @@
+numpy==1.23.4
+pandas
+Pillow==9.2.0
+plotly-express
+tqdm
