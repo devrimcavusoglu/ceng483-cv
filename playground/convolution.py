@@ -6,7 +6,7 @@ import numpy as np
 import scipy.signal as ss
 from PIL import Image
 
-from playground.common import load_lena
+from playground.common import load_lena, load_fixture
 
 
 def conv1d(input_array: np.ndarray, kernel: np.ndarray, stride: int = 1):
@@ -23,9 +23,9 @@ def conv1d(input_array: np.ndarray, kernel: np.ndarray, stride: int = 1):
 	s = n - k + 1
 	offset = k // 2
 	output_array = np.zeros(s)
-	for i in range(offset, n-offset, stride):
-		r = input_array[i-offset:i+offset+1]
-		output_array[i-offset] = np.dot(r, kernel)
+	for i in range(offset, n - offset, stride):
+		r = input_array[i - offset:i + offset + 1]
+		output_array[i - offset] = np.dot(r, kernel)
 	return output_array
 
 
@@ -35,7 +35,7 @@ def conv2d(input_array: np.ndarray, kernel: np.ndarray, stride: int = 1):
 	"""
 	if input_array.ndim != 2 or kernel.ndim != 2:
 		raise ValueError
-	
+
 	kernel = np.flipud(np.fliplr(kernel))
 
 	m, n = input_array.shape
@@ -46,17 +46,17 @@ def conv2d(input_array: np.ndarray, kernel: np.ndarray, stride: int = 1):
 	s = m - k + 1
 	t = n - k + 1
 	offset = k // 2
-	output_array = np.zeros((s,t))
-	for i in range(offset, m-offset, stride):
-		for j in range(offset, n-offset, stride):
-			r = input_array[i-offset:i+offset+1, j-offset:j+offset+1]
-			output_array[i-offset, j-offset] = np.dot(r.ravel(), kernel.ravel())
+	output_array = np.zeros((s, t))
+	for i in range(offset, m - offset, stride):
+		for j in range(offset, n - offset, stride):
+			r = input_array[i - offset:i + offset + 1, j - offset:j + offset + 1]
+			output_array[i - offset, j - offset] = np.dot(r.ravel(), kernel.ravel())
 	return output_array
 
 
 def test_conv1d():
 	print("Testing conv1d..")
-	f = np.array([1,2,3,4,5,6,7,8,9])
+	f = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9])
 	h = np.array([-1, 0, 1])
 	g1 = np.convolve(f, h, mode="valid")
 	print("numpy ->", g1)
@@ -68,8 +68,8 @@ def test_conv1d():
 
 def test_conv2d():
 	print("Testing conv2d..")
-	f = np.array([1,2,3,4,5,6,7,8,9]).reshape(3, 3)
-	h = np.tile([-1, 0, 1], 3).reshape(3,3)
+	f = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9]).reshape(3, 3)
+	h = np.tile([-1, 0, 1], 3).reshape(3, 3)
 	g1 = ss.convolve2d(f, h, mode="valid")
 	print("scipy ->", g1)
 	g2 = conv2d(f, h)
@@ -84,7 +84,7 @@ def test_lena():
 	pil_img = lena.convert('L')
 	img = np.array(pil_img)
 
-	h = np.tile([-1, 0, 1], 3).reshape(3,3)
+	h = np.tile([-1, 0, 1], 3).reshape(3, 3)
 
 	g1 = ss.convolve2d(img, h, mode="valid")
 	g2 = conv2d(img, h)
@@ -101,11 +101,11 @@ def experiment_lenna_rgb():
 	lena = load_lena()
 	pil_img = lena.convert('RGB')
 	img = np.array(pil_img)
-	h = np.tile([-1, 0, 1], 3).reshape(3,3)
+	h = np.tile([-1, 0, 1], 3).reshape(3, 3)
 
 	out = []
 	for c in range(3):
-		conv_out = ss.convolve2d(img[:,:,c], h, mode="valid")
+		conv_out = ss.convolve2d(img[:, :, c], h, mode="valid")
 		out.append(conv_out)
 	out = np.dstack(out)
 	print(out.shape)
@@ -115,24 +115,28 @@ def experiment_lenna_rgb():
 	filtered_img = Image.fromarray(out, mode="RGB")
 	filtered_img.show()
 
-	# g2 = conv2d(img, h)
-	# assert (g1 == g2).all()
 
-	# filtered_img = Image.fromarray(g2)
-	# filtered_img.show()
-	# print("Test PASSED!")
+# g2 = conv2d(img, h)
+# assert (g1 == g2).all()
+
+# filtered_img = Image.fromarray(g2)
+# filtered_img.show()
+# print("Test PASSED!")
 
 
 def lena_experiment():
-	lena = load_lena()
+	lena = load_fixture("checkerboard.png")
 	pil_img = lena.convert('L')
 	img = np.array(pil_img)
-	h = (1/9) * np.array([
-		[1, 1, 1],
-		[1, 1, 1],
-		[1, 1, 1]
-	])
+	# h = (1/273) * np.array([
+	# 	[1, 4, 7, 4, 1],
+	# 	[4, 16, 26, 16, 4],
+	# 	[7, 26, 41, 26, 7],
+	# 	[4, 16, 26, 16, 4],
+	# 	[1, 4, 7, 4, 1],
+	# ])
 
+	h = gkern(11, 5)
 	g = ss.convolve2d(img, h)
 	pil_img.show()
 	filtered_img = Image.fromarray(g)
@@ -142,6 +146,6 @@ def lena_experiment():
 if __name__ == "__main__":
 	test_conv1d()
 	test_conv2d()
-	test_lena()
+	# test_lena()
 	# experiment_lenna_rgb()
-	# lena_experiment()
+	lena_experiment()

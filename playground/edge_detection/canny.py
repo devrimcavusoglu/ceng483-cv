@@ -61,7 +61,7 @@ class CannyOperator(Operator):
             input_array = convolve2d(input_array, GAUSSIAN_KERNEL, mode="same")
         gx, gy = self.sobel(input_array, return_magnitudes=True)
         sobel_output = np.sqrt(gx ** 2 + gy ** 2)
-        theta = np.arctan2(gx, gy)
+        theta = np.arctan2(gy, gx)
         nms_output = self.non_maximum_supression(sobel_output, theta)
         canny_output = self.hysteresis_thresholding(nms_output, theta, th, tl)
         if verbose:
@@ -144,4 +144,4 @@ def canny_rgb():
 
 
 if __name__ == "__main__":
-    canny_rgb()
+    canny_grayscale()
