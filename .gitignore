@@ -140,5 +140,7 @@ tex/
 *.pkl
 dataset/
 .dataset/
+ceng483-f22-hw3-dataset/
+checkpoints/
 
 
