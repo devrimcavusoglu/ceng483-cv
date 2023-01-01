@@ -47,7 +47,7 @@ def train(
     print('device: ' + str(device))
     net = Net().to(device=device)
     criterion = nn.MSELoss()
-    optimizer = optim.SGD(net.parameters(), lr=hps['lr'])
+    optimizer = optim.SGD(net.parameters(), lr=lr)
     train_loader, val_loader = get_loaders(batch_size, device)
 
     if load_checkpoint:
@@ -56,12 +56,12 @@ def train(
         net.load_state_dict(torch.load(ckp_path))
 
     print('training begins')
-    for epoch in range(max_num_epoch):
-        running_loss = 0.0 # training loss of the network
+    for epoch in range(max_epochs):
+        running_loss = 0.0  # training loss of the network
         for iteri, data in enumerate(train_loader, 0):
-            inputs, targets = data # inputs: low-resolution images, targets: high-resolution images.
+            inputs, targets = data  # inputs: low-resolution images, targets: high-resolution images.
 
-            optimizer.zero_grad() # zero the parameter gradients
+            optimizer.zero_grad()  # zero the parameter gradients
 
             # do forward, backward, SGD step
             preds = net(inputs)
@@ -71,12 +71,21 @@ def train(
 
             # print loss
             running_loss += loss.item()
-            print_n = 100 # feel free to change this constant
+            print_n = 100  # feel free to change this constant
             if iteri % print_n == (print_n-1):    # print every print_n mini-batches
+                # note: you most probably want to track the progress on the validation set as well
+                # (needs to be implemented)
+                val_loss = 0
+                net.eval()  # go into eval mode
+                with torch.no_grad():
+                    for x_val, y_val in val_loader:
+                        y_pred = net(x_val)
+                        loss = criterion(y_pred, y_val)
+                        val_loss += loss.item()
                 print('[%d, %5d] network-loss: %.3f' %
-                      (epoch + 1, iteri + 1, running_loss / 100))
+                      (epoch + 1, iteri + 1, running_loss / 100), val_loss)
                 running_loss = 0.0
-                # note: you most probably want to track the progress on the validation set as well (needs to be implemented)
+                net.train()  # switch back to train mode
 
             if (iteri == 0) and visualize:
                 hw3utils.visualize_batch(inputs, preds, targets)
@@ -94,7 +103,7 @@ def train(
 if __name__ == "__main__":
     batch_size = 16
     max_num_epoch = 10
-    hps = {'lr': 0.001}
+    hps = {'lr': 0.01}
 
     torch.multiprocessing.set_start_method('spawn', force=True)
     train(
@@ -102,6 +111,6 @@ if __name__ == "__main__":
             max_num_epoch,
             hps['lr'],
             device=None,
-            visualize=False,
+            visualize=True,
             load_checkpoint=False
     )
