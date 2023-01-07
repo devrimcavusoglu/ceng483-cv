@@ -1,3 +1,6 @@
+import random
+
+import torch
 from skimage import io, color
 from skimage.transform import rescale
 import numpy as np
@@ -21,3 +24,9 @@ def cvt2rgb(image):
 
 def upsample(image):
     return rescale(image, 4, mode='constant', order=3)
+
+
+def seed_all(seed: int):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
