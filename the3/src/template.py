@@ -23,7 +23,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 import hw3utils
-from the3.src import LOG_DIR, DATA_ROOT
+from the3.src import LOG_DIR, DATA_ROOT, TEST_IMAGES_PATH
 from the3.src.model import Net
 from the3.src.utils import seed_all
 
@@ -41,6 +41,12 @@ def get_comparison_inputs(size: int = 20, device=None, seed: int = 76):
     val_set = hw3utils.HW3ImageFolder(root=DATA_ROOT / "val", device=device)
     seed_all(seed)
     indices = np.random.choice(2000, size=size, replace=False)
+    if not TEST_IMAGES_PATH.exists():
+        test_image_indices = np.random.choice(2000, size=100, replace=False)
+        test_file = TEST_IMAGES_PATH.open("a")
+        for idx in test_image_indices:
+            test_file.write(f"{val_set.imgs[idx][0]}\n")
+        test_file.close()
     comparison_inputs = []
     comparison_targets = []
     for i in indices:
