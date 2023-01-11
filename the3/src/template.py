@@ -14,6 +14,7 @@ You definitely can add more hyper-parameters here.
 
 import json
 import os
+from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -37,23 +38,44 @@ def get_loaders(batch_size, device):
     return train_loader, val_loader
 
 
-def get_comparison_inputs(size: int = 20, device=None, seed: int = 76):
-    val_set = hw3utils.HW3ImageFolder(root=DATA_ROOT / "val", device=device)
-    seed_all(seed)
-    indices = np.random.choice(2000, size=size, replace=False)
-    if not TEST_IMAGES_PATH.exists():
-        test_image_indices = np.random.choice(2000, size=100, replace=False)
-        test_file = TEST_IMAGES_PATH.open("a")
-        for idx in test_image_indices:
-            test_file.write(f"{val_set.imgs[idx][0]}\n")
-        test_file.close()
+def sample_from_dataset(a: Union[int, np.ndarray], mode: str = "val", device=None, seed: int = 42, export_names: bool = False):
+    if mode == "val":
+        dataset = hw3utils.HW3ImageFolder(root=DATA_ROOT / "val", device=device)
+    elif mode == "test":
+        dataset = hw3utils.HW3ImageFolder(root=DATA_ROOT / "test", device=device)
+    else:
+        raise ValueError("only 'val' and 'test' sets are supported.")
+
+    if isinstance(a, int):
+        seed_all(seed)
+        indices = np.random.choice(2000, size=a, replace=False)
+    else:
+        indices = a
     comparison_inputs = []
     comparison_targets = []
     for i in indices:
-        comparison_input, comparison_target = val_set[i]
+        comparison_input, comparison_target = dataset[i]
         comparison_inputs.append(comparison_input)
         comparison_targets.append(comparison_target)
+    if export_names:
+        test_file = TEST_IMAGES_PATH.open("w")
+        for idx in indices:
+            test_file.write(f"{dataset.imgs[idx][0]}\n")
+        test_file.close()
     return torch.stack(comparison_inputs), torch.stack(comparison_targets)
+
+
+def get_estimations(experiment_name: str,  mode: str = "val", export_names: bool = False):
+    experiment_dir = LOG_DIR / experiment_name
+    sample_input, _ = sample_from_dataset(100, "val", device=torch.device("cpu"), seed=147, export_names=export_names)
+    ckp_path = experiment_dir / "checkpoint.pt"
+    output_path = experiment_dir / "estimations.npy"
+    net = Net(4, 4)
+    net.load_state_dict(torch.load(ckp_path))
+    net.eval()
+    with torch.no_grad():
+        net_out = net(sample_input)
+    np.save(output_path, net_out.numpy())
 
 
 def train(
@@ -167,7 +189,7 @@ def train(
     for comp in range(total_comps):
         seed = 100 * (comp+1)
         comparison_vis_path = EXPERIMENT_DIR / f"comparison_val_{comp+1}.png"
-        comparison_inputs, comparison_targets = get_comparison_inputs(comp_size, device=device, seed=seed)
+        comparison_inputs, comparison_targets = sample_from_dataset(comp_size, mode="val", device=device, seed=seed)
         comparison_outs = net(comparison_inputs)
         hw3utils.visualize_batch(comparison_inputs, comparison_outs, comparison_targets, comparison_vis_path)
     print('Finished Training')
@@ -221,17 +243,18 @@ if __name__ == "__main__":
         "n_conv": 4,
         "h_channels": 4
     }
-    experiment_dir = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}"
+    experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}"
 
-    torch.multiprocessing.set_start_method('spawn', force=True)
-    train(
-            batch_size,
-            min_num_epoch,
-            max_num_epoch,
-            hps['lr'],
-            experiment_dir=experiment_dir,
-            device=None,
-            visualize=True,
-            load_checkpoint=False,
-            model_params=model_params
-    )
+    # torch.multiprocessing.set_start_method('spawn', force=True)
+    # train(
+    #         batch_size,
+    #         min_num_epoch,
+    #         max_num_epoch,
+    #         hps['lr'],
+    #         experiment_dir=experiment_name,
+    #         device=None,
+    #         visualize=True,
+    #         load_checkpoint=False,
+    #         model_params=model_params
+    # )
+    get_estimations(experiment_name)
