@@ -22,6 +22,7 @@ def main(argv):
         acc += cur_acc
     acc /= len(files)
     print(f"{acc:.2f}/1.00")
+    return acc  # added return for saving.
 
 
 if __name__ == "__main__":

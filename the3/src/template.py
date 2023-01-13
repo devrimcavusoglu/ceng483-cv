@@ -14,7 +14,8 @@ You definitely can add more hyper-parameters here.
 
 import json
 import os
-from typing import Union
+from pathlib import Path
+from typing import Union, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -24,7 +25,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 import hw3utils
-from the3.src import LOG_DIR, DATA_ROOT, TEST_IMAGES_PATH
+from the3.src import LOG_DIR, DATA_ROOT, TEST_IMAGES_PATH, PROJECT_ROOT
+from the3.src.early_stopping import EarlyStopping
+from the3.src.evaluate import main as evaluate
 from the3.src.model import Net
 from the3.src.utils import seed_all
 
@@ -65,17 +68,17 @@ def sample_from_dataset(a: Union[int, np.ndarray], mode: str = "val", device=Non
     return torch.stack(comparison_inputs), torch.stack(comparison_targets)
 
 
-def get_estimations(experiment_name: str,  mode: str = "val", export_names: bool = False):
-    experiment_dir = LOG_DIR / experiment_name
-    sample_input, _ = sample_from_dataset(100, "val", device=torch.device("cpu"), seed=147, export_names=export_names)
-    ckp_path = experiment_dir / "checkpoint.pt"
+def get_estimations(experiment_dir: Union[str, Path], model: Net,  mode: str = "val", device: str = "cpu", export_names: bool = False):
+    experiment_dir = Path(experiment_dir) if isinstance(experiment_dir, str) else experiment_dir
+    sample_input, _ = sample_from_dataset(100, "val", device=torch.device(device), seed=147, export_names=export_names)
+    # ckp_path = experiment_dir / "checkpoint.pt"
     output_path = experiment_dir / "estimations.npy"
-    net = Net(4, 4)
-    net.load_state_dict(torch.load(ckp_path))
-    net.eval()
-    with torch.no_grad():
-        net_out = net(sample_input)
-    np.save(output_path, net_out.numpy())
+    # model.load_state_dict(torch.load(ckp_path))
+    model.eval()
+    with torch.no_grad():  # this allows not having detach.
+        net_out = model(sample_input)
+    net_out = (net_out.cpu().numpy()/2 + 0.5)*255
+    np.save(output_path, net_out)
 
 
 def train(
@@ -83,19 +86,22 @@ def train(
         min_epochs: int,
         max_epochs: int,
         lr: float,
-        experiment_dir: str,
+        experiment_name: str,
         device: str = None,
         visualize: bool = False,
         load_checkpoint: bool = True,
         model_params: dict = None,
+        early_stopping_params: dict = None,
         seed: int = 42
 ):
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model_params = model_params or {}
+    early_stopping_params = early_stopping_params or {}
     device = torch.device(device)
     print('device: ' + str(device))
     net = Net(**model_params).to(device=device)
+
     criterion = nn.MSELoss()
     optimizer = optim.SGD(net.parameters(), lr=lr)
     train_loader, val_loader = get_loaders(batch_size, device)
@@ -108,14 +114,30 @@ def train(
         ckp_path = os.path.join(LOG_DIR, 'checkpoint.pt')
         net.load_state_dict(torch.load(ckp_path))
 
-    EXPERIMENT_DIR = LOG_DIR / experiment_dir
+    experiment_dir = LOG_DIR / experiment_name
     # Create dirs if not exists
-    (EXPERIMENT_DIR / "examples").mkdir(exist_ok=True, parents=True)
+    (experiment_dir / "examples").mkdir(exist_ok=False, parents=True)
+    early_stopping_params["path"] = experiment_dir / "checkpoint.pt"
+    early_stopping_params.setdefault("delta", 5e-5)
+    early_stopping_params.setdefault("patience", 3)
+    early_stopper = EarlyStopping(**early_stopping_params)
+    training_params = {
+        "batch_size"     : batch_size,
+        "min_epochs"     : min_epochs,
+        "max_epochs"     : max_epochs,
+        "lr"             : lr,
+        "device"         : device,
+        "visualize"      : visualize,
+        "load_checkpoint": load_checkpoint,
+        "model_params"   : model_params,
+        "seed"           : seed
+    }
 
     print('training begins')
     for epoch in range(max_epochs):
         running_loss = 0.0  # training loss of the network
         for iteri, data in enumerate(train_loader, 0):
+            net.train()  # switch to train mode
             inputs, targets = data  # inputs: low-resolution images, targets: high-resolution images.
 
             optimizer.zero_grad()  # zero the parameter gradients
@@ -142,61 +164,57 @@ def train(
                     val_loss = val_loss / len(val_loader)
                 if len(val_losses) == 0 or (len(val_losses) > 0 and val_loss < val_losses[-1]):
                     # Check if we made progress
-                    print(f'Saving the model at epoch-{epoch + 1} step-{iteri}')
-                    torch.save(net.state_dict(), os.path.join(EXPERIMENT_DIR, 'checkpoint.pt'))
-                    export_path = EXPERIMENT_DIR / f'examples/epoch_end-{epoch + 1}.png'
+                    export_path = experiment_dir / f'examples/epoch_end-{epoch + 1}.png'
 
                 val_losses.append(val_loss)
                 train_loss = running_loss / 100
                 train_losses.append(train_loss)
-                print('[%d, %5d] network-loss: %.5f | validation-loss: %.5f' %
-                      (epoch + 1, iteri + 1, train_loss, val_loss))
+                pixelwise_acc = evaluate_model(experiment_dir, net)
+                print('[%d, %5d] network-loss: %.5f | validation-loss: %.5f | pixelwise_acc: %.5f' %
+                      (epoch + 1, iteri + 1, train_loss, val_loss, pixelwise_acc))
                 running_loss = 0.0
-                net.train()  # switch back to train mode
+                training_params["best_cp"] = {
+                    "epoch": epoch + 1,
+                    "iter": iteri+1,
+                    "loss" : {
+                        "train": train_losses[-1],
+                        "val"  : val_losses[-1]
+                    },
+                    "test_images_acc": pixelwise_acc
+                }
+                if epoch >= min_epochs:
+                    early_stopper(val_loss, net, training_params)
+                if early_stopper.early_stop:
+                    break
 
             if (iteri == 0) and visualize:
                 hw3utils.visualize_batch(inputs, preds, targets)
-
-        visualize_loss_plot((epoch+1)*3, train_losses, val_losses, EXPERIMENT_DIR)
+        visualize_loss_plot(train_losses, val_losses, experiment_dir)
         hw3utils.visualize_batch(inputs, preds, targets, export_path)
-        if check_early_stopping(val_losses, min_epochs*3):
-            print("Stopping training early as improvement rate is not better than %1.")
-            print(f"Best iter -> Train Loss: {train_losses[-1]:.5f} | Val Loss: {val_losses[-1]:.5f}")
-            training_params = {
-                "batch_size": batch_size,
-                "min_epochs": min_epochs,
-                "max_epochs": max_epochs,
-                "lr": lr,
-                "device": device,
-                "visualize": visualize,
-                "load_checkpoint": load_checkpoint,
-                "model_params": model_params,
-                "seed": seed,
-                "best_cp": {
-                    "epoch": epoch+1,
-                    "loss": {
-                        "train": train_losses[-1],
-                        "val": val_losses[-1]
-                    }
-                }
-            }
-            with open(EXPERIMENT_DIR / "training_args.json", "w") as fd_out:
-                json.dump(training_params, fd_out, default=str, indent=2)
+        if early_stopper.early_stop:
             break
 
     comp_size = 12
     total_comps = 3
     for comp in range(total_comps):
         seed = 100 * (comp+1)
-        comparison_vis_path = EXPERIMENT_DIR / f"comparison_val_{comp+1}.png"
+        comparison_vis_path = experiment_dir / f"comparison_val_{comp+1}.png"
         comparison_inputs, comparison_targets = sample_from_dataset(comp_size, mode="val", device=device, seed=seed)
         comparison_outs = net(comparison_inputs)
         hw3utils.visualize_batch(comparison_inputs, comparison_outs, comparison_targets, comparison_vis_path)
     print('Finished Training')
 
 
-def visualize_loss_plot(index, train_losses, val_losses, experiment_dir):
-    index_vals = list(range(index))
+def evaluate_model(experiment_dir, model):
+    get_estimations(experiment_dir, model, device="cuda")
+    estimations_path = experiment_dir / "estimations.npy"
+    test_images = PROJECT_ROOT / "test_images.txt"
+    print("Avg. Pixelwise Accuracy:")
+    return evaluate([estimations_path, test_images])
+
+
+def visualize_loss_plot(train_losses, val_losses, experiment_dir):
+    index_vals = list(range(len(train_losses)))
     plt.plot(index_vals, train_losses, label='Training Loss')
     plt.plot(index_vals, val_losses, label='Validation Loss')
     plt.title('Training and Validation Loss')
@@ -234,27 +252,32 @@ def check_early_stopping(val_losses, init_patience: int = 30,  improvement_rate:
     return False
 
 
-if __name__ == "__main__":
+def grid_search_train():
     batch_size = 16
     max_num_epoch = 100
     min_num_epoch = 5
-    hps = {'lr': 0.01}
-    model_params = {
-        "n_conv": 4,
-        "h_channels": 4
-    }
-    experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}"
+    h_channels = [2, 8]
 
-    # torch.multiprocessing.set_start_method('spawn', force=True)
-    # train(
-    #         batch_size,
-    #         min_num_epoch,
-    #         max_num_epoch,
-    #         hps['lr'],
-    #         experiment_dir=experiment_name,
-    #         device=None,
-    #         visualize=True,
-    #         load_checkpoint=False,
-    #         model_params=model_params
-    # )
-    get_estimations(experiment_name)
+    torch.multiprocessing.set_start_method('spawn', force=True)
+    for h_channel in h_channels:
+        hps = {'lr': 0.05}
+        model_params = {
+            "n_conv"    : 2,
+            "h_channels": h_channel
+        }
+        experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}"
+        train(
+                batch_size,
+                min_num_epoch,
+                max_num_epoch,
+                hps['lr'],
+                experiment_name=experiment_name,
+                device=None,
+                visualize=True,
+                load_checkpoint=False,
+                model_params=model_params
+        )
+
+
+if __name__ == "__main__":
+    grid_search_train()
