@@ -258,18 +258,22 @@ def grid_search_train():
     max_num_epoch = 100
     min_num_epoch = 5
     setups = [
-        (1e-1, 2, 8),
+        (1e-1, 2, 16, False, True),
     ]
 
     torch.multiprocessing.set_start_method('spawn', force=True)
     for setup in setups:
-        lr, n_conv, h_channels = setup
+        lr, n_conv, h_channels, add_bn, tanh_last = setup
         hps = {'lr': lr}
         model_params = {
             "n_conv"    : n_conv,
-            "h_channels": h_channels
+            "h_channels": h_channels,
+            "add_bn": add_bn,
+            "tanh_last": tanh_last
         }
-        experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}"
+        bn_suffix = "" if not add_bn else "_bn"
+        tanh_suffix = "" if not tanh_last else "_tanh"
+        experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}{bn_suffix}{tanh_suffix}"
         train(
                 batch_size,
                 min_num_epoch,
