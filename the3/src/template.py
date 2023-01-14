@@ -12,10 +12,10 @@ You should tune these hyper-parameters using:
 You definitely can add more hyper-parameters here.
 """
 
-import json
 import os
+import time
 from pathlib import Path
-from typing import Union, Dict
+from typing import Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -100,6 +100,7 @@ def train(
     early_stopping_params = early_stopping_params or {}
     device = torch.device(device)
     print('device: ' + str(device))
+    seed_all(seed)
     net = Net(**model_params).to(device=device)
 
     criterion = nn.MSELoss()
@@ -107,7 +108,6 @@ def train(
     train_loader, val_loader = get_loaders(batch_size, device)
 
     train_losses, val_losses = [], []
-    seed_all(seed)
 
     if load_checkpoint:
         print('loading the model from the checkpoint')
@@ -115,7 +115,7 @@ def train(
         net.load_state_dict(torch.load(ckp_path))
 
     experiment_dir = LOG_DIR / experiment_name
-    # Create dirs if not exists
+    # Create dirs if not exists, prevent overwrite
     (experiment_dir / "examples").mkdir(exist_ok=False, parents=True)
     early_stopping_params["path"] = experiment_dir / "checkpoint.pt"
     early_stopping_params.setdefault("delta", 5e-5)
@@ -226,6 +226,7 @@ def visualize_loss_plot(train_losses, val_losses, experiment_dir):
 
 def check_early_stopping(val_losses, init_patience: int = 30,  improvement_rate: float = 1e-2) -> True:
     """
+    Legacy implementation (implemented for trial purposes) of early stopping.
     Checks if training procedure should be stopped (i.e. if model converged). Unlike
     common implementations, I'll check for relative improvement w.r.t to percentage
     as it's more inherent (imho) when judging the desired improvement amount. Furthermore, I'll
@@ -256,14 +257,17 @@ def grid_search_train():
     batch_size = 16
     max_num_epoch = 100
     min_num_epoch = 5
-    h_channels = [2, 8]
+    setups = [
+        (1e-1, 2, 8),
+    ]
 
     torch.multiprocessing.set_start_method('spawn', force=True)
-    for h_channel in h_channels:
-        hps = {'lr': 0.05}
+    for setup in setups:
+        lr, n_conv, h_channels = setup
+        hps = {'lr': lr}
         model_params = {
-            "n_conv"    : 2,
-            "h_channels": h_channel
+            "n_conv"    : n_conv,
+            "h_channels": h_channels
         }
         experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}"
         train(
@@ -277,6 +281,7 @@ def grid_search_train():
                 load_checkpoint=False,
                 model_params=model_params
         )
+        time.sleep(2)
 
 
 if __name__ == "__main__":
