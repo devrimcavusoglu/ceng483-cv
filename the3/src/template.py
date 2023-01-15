@@ -84,7 +84,7 @@ def get_estimations(experiment_dir: Union[str, Path], model: Net,  mode: str = "
     model.eval()
     with torch.no_grad():  # this allows not having detach.
         net_out = model(sample_input)
-    net_out = (net_out.cpu().numpy()/2 + 0.5)*255
+    net_out = ((net_out.cpu().numpy()/2 + 0.5)*255).astype(np.uint8)
     np.save(output_path, net_out)
 
 
@@ -313,8 +313,8 @@ def grid_search_train():
 
 
 if __name__ == "__main__":
-    grid_search_train()
-    experiment_dir = LOG_DIR / "q3-3_nlayer=2_hc=16_lr=0.01_tanh_sconv"
+    # grid_search_train()
+    experiment_dir = LOG_DIR / "q1-1_nlayer=2_hc=16_lr=0.01_tanh_sconv"
     model = Net(2, 16, tanh_last=True, use_groups=True)
     ckp_path = experiment_dir / "checkpoint.pt"
     model.load_state_dict(torch.load(ckp_path))
