@@ -25,7 +25,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 import hw3utils
-from the3.src import LOG_DIR, DATA_ROOT, TEST_IMAGES_PATH, PROJECT_ROOT
+from the3.src import LOG_DIR, DATA_ROOT, PROJECT_ROOT
 from the3.src.early_stopping import EarlyStopping
 from the3.src.evaluate import main as evaluate
 from the3.src.model import Net
@@ -44,8 +44,10 @@ def get_loaders(batch_size, device):
 def sample_from_dataset(a: Union[int, np.ndarray], mode: str = "val", device=None, seed: int = 42, export_names: bool = False):
     if mode == "val":
         dataset = hw3utils.HW3ImageFolder(root=DATA_ROOT / "val", device=device)
+        export_path = PROJECT_ROOT / "val100_images.txt"
     elif mode == "test":
         dataset = hw3utils.HW3ImageFolder(root=DATA_ROOT / "test", device=device)
+        export_path = PROJECT_ROOT / "test_images.txt"
     else:
         raise ValueError("only 'val' and 'test' sets are supported.")
 
@@ -61,7 +63,7 @@ def sample_from_dataset(a: Union[int, np.ndarray], mode: str = "val", device=Non
         comparison_inputs.append(comparison_input)
         comparison_targets.append(comparison_target)
     if export_names:
-        test_file = TEST_IMAGES_PATH.open("w")
+        test_file = export_path.open("w")
         for idx in indices:
             test_file.write(f"{dataset.imgs[idx][0]}\n")
         test_file.close()
@@ -70,10 +72,15 @@ def sample_from_dataset(a: Union[int, np.ndarray], mode: str = "val", device=Non
 
 def get_estimations(experiment_dir: Union[str, Path], model: Net,  mode: str = "val", device: str = "cpu", export_names: bool = False):
     experiment_dir = Path(experiment_dir) if isinstance(experiment_dir, str) else experiment_dir
-    sample_input, _ = sample_from_dataset(100, "val", device=torch.device(device), seed=147, export_names=export_names)
-    # ckp_path = experiment_dir / "checkpoint.pt"
-    output_path = experiment_dir / "estimations.npy"
-    # model.load_state_dict(torch.load(ckp_path))
+
+    if mode == "val":
+        sample_input, _ = sample_from_dataset(100, "val", device=torch.device(device), seed=147,
+                                              export_names=export_names)
+        output_path = experiment_dir / "estimations.npy"
+    else:
+        sample_input, _ = sample_from_dataset(2000, "test", device=torch.device(device), seed=147,
+                                              export_names=export_names)
+        output_path = experiment_dir / "test_estimations.npy"
     model.eval()
     with torch.no_grad():  # this allows not having detach.
         net_out = model(sample_input)
@@ -108,6 +115,7 @@ def train(
     train_loader, val_loader = get_loaders(batch_size, device)
 
     train_losses, val_losses = [], []
+    val_accs = []
 
     if load_checkpoint:
         print('loading the model from the checkpoint')
@@ -170,6 +178,7 @@ def train(
                 train_loss = running_loss / 100
                 train_losses.append(train_loss)
                 pixelwise_acc = evaluate_model(experiment_dir, net)
+                val_accs.append(pixelwise_acc)
                 print('[%d, %5d] network-loss: %.5f | validation-loss: %.5f | pixelwise_acc: %.5f' %
                       (epoch + 1, iteri + 1, train_loss, val_loss, pixelwise_acc))
                 running_loss = 0.0
@@ -190,6 +199,7 @@ def train(
             if (iteri == 0) and visualize:
                 hw3utils.visualize_batch(inputs, preds, targets)
         visualize_loss_plot(train_losses, val_losses, experiment_dir)
+        visualize_accuracy_plot(val_accs, experiment_dir)
         hw3utils.visualize_batch(inputs, preds, targets, export_path)
         if early_stopper.early_stop:
             break
@@ -208,7 +218,7 @@ def train(
 def evaluate_model(experiment_dir, model):
     get_estimations(experiment_dir, model, device="cuda")
     estimations_path = experiment_dir / "estimations.npy"
-    test_images = PROJECT_ROOT / "test_images.txt"
+    test_images = PROJECT_ROOT / "val100_images.txt"
     print("Avg. Pixelwise Accuracy:")
     return evaluate([estimations_path, test_images])
 
@@ -222,6 +232,18 @@ def visualize_loss_plot(train_losses, val_losses, experiment_dir):
     plt.ylabel('Loss')
     plt.legend(loc='best')
     plt.savefig(experiment_dir / "loss.png")
+    plt.clf()
+
+
+def visualize_accuracy_plot(val_accs, experiment_dir):
+    index_vals = list(range(len(val_accs)))
+    plt.plot(index_vals, val_accs, label='Val100 Accuracy')
+    plt.title('Validation Subset (100) Accuracy')
+    plt.xlabel('Steps')
+    plt.ylabel('12-Margin Pixelwise Accuracy')
+    plt.legend(loc='best')
+    plt.savefig(experiment_dir / "accuracy.png")
+    plt.clf()
 
 
 def check_early_stopping(val_losses, init_patience: int = 30,  improvement_rate: float = 1e-2) -> True:
@@ -258,22 +280,24 @@ def grid_search_train():
     max_num_epoch = 100
     min_num_epoch = 5
     setups = [
-        (1e-1, 2, 16, False, True),
-    ]
+        (1e-2, 2, 16, False, True, True),
+    ]  # best setup
 
     torch.multiprocessing.set_start_method('spawn', force=True)
     for setup in setups:
-        lr, n_conv, h_channels, add_bn, tanh_last = setup
+        lr, n_conv, h_channels, add_bn, tanh_last, use_groups = setup
         hps = {'lr': lr}
         model_params = {
             "n_conv"    : n_conv,
             "h_channels": h_channels,
             "add_bn": add_bn,
-            "tanh_last": tanh_last
+            "tanh_last": tanh_last,
+            "use_groups": use_groups
         }
         bn_suffix = "" if not add_bn else "_bn"
         tanh_suffix = "" if not tanh_last else "_tanh"
-        experiment_name = f"q1-1_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}{bn_suffix}{tanh_suffix}"
+        sepconv_suffix = "" if not use_groups else "_sconv"
+        experiment_name = f"q3-3_nlayer={model_params['n_conv']}_hc={model_params['h_channels']}_lr={hps['lr']}{bn_suffix}{tanh_suffix}{sepconv_suffix}"
         train(
                 batch_size,
                 min_num_epoch,
@@ -290,3 +314,8 @@ def grid_search_train():
 
 if __name__ == "__main__":
     grid_search_train()
+    experiment_dir = LOG_DIR / "q3-3_nlayer=2_hc=16_lr=0.01_tanh_sconv"
+    model = Net(2, 16, tanh_last=True, use_groups=True)
+    ckp_path = experiment_dir / "checkpoint.pt"
+    model.load_state_dict(torch.load(ckp_path))
+    get_estimations(experiment_dir, model, "test")
