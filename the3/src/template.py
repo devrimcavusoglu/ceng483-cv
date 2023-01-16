@@ -85,7 +85,7 @@ def get_estimations(experiment_dir: Union[str, Path], model: Net,  mode: str = "
     with torch.no_grad():  # this allows not having detach.
         net_out = model(sample_input)
     net_out = ((net_out.cpu().numpy()/2 + 0.5)*255).astype(np.uint8)
-    np.save(output_path, net_out)
+    np.save(output_path, net_out.transpose(0, 2, 3, 1))
 
 
 def train(
@@ -281,6 +281,7 @@ def grid_search_train():
     min_num_epoch = 5
     setups = [
         (1e-2, 2, 16, False, True, True),
+        (1e-1, 2, 16, False, True, True),
     ]  # best setup
 
     torch.multiprocessing.set_start_method('spawn', force=True)
@@ -313,9 +314,9 @@ def grid_search_train():
 
 
 if __name__ == "__main__":
-    # grid_search_train()
-    experiment_dir = LOG_DIR / "q1-1_nlayer=2_hc=16_lr=0.01_tanh_sconv"
-    model = Net(2, 16, tanh_last=True, use_groups=True)
-    ckp_path = experiment_dir / "checkpoint.pt"
-    model.load_state_dict(torch.load(ckp_path))
-    get_estimations(experiment_dir, model, "test")
+    grid_search_train()
+    # experiment_dir = LOG_DIR / "q1-1_nlayer=2_hc=16_lr=0.01_tanh_sconv"
+    # model = Net(2, 16, tanh_last=True, use_groups=True)
+    # ckp_path = experiment_dir / "checkpoint.pt"
+    # model.load_state_dict(torch.load(ckp_path))
+    # get_estimations(experiment_dir, model, "val")
