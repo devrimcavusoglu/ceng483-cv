@@ -36,7 +36,7 @@ class HW3ImageFolder(torchvision.datasets.ImageFolder):
         In order to obtain the path of the image with index index you may use following piece of code. As dataset goes
         over different indices you will collect image paths.
 
-        myfile = open('test_images.txt', 'a')
+        myfile = open('val100_images.txt', 'a')
         path = self.imgs[index][0]
         myfile.write(path)
         myfile.write('\n')
